@@ -1,0 +1,11 @@
+Esta herramienta permite obtener el archivo .bvh para exportar en blender
+solo que se tienen que realizar ajustes manuales en Blender. Igual tienen
+complemento de Blender
+
+https://docs.dollarsmocap.com/blender-addon/
+
+Esta herramienta extrae animaciones y crea avatares 3D con fluidez, sirve
+como complemento a Unity. Pero es de paga (300 dolares creo)
+
+https://www.tracking4all.com/
+https://www.youtube.com/watch?v=4p-2ItFebDI
