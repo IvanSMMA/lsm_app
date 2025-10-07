@@ -18,3 +18,7 @@ https://youtu.be/mifGsXHitvs?si=tiGubLUEGqZQJRmK
 https://plask.ai/en-US
 https://www.rokoko.com/es/products/vision
 https://www.deepmotion.com/
+----------------------------------------------------------
+Código para visualizar animaciones en React Expo
+
+https://www.youtube.com/watch?v=SP0O5o9BJVA
