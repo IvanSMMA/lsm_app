@@ -22,3 +22,5 @@ https://www.deepmotion.com/
 Código para visualizar animaciones en React Expo
 
 https://www.youtube.com/watch?v=SP0O5o9BJVA
+https://www.youtube.com/watch?v=O8q8H9c9XZ4
+https://github.com/Rakha112/react-native-animation/tree/main/season2
