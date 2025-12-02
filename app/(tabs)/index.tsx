@@ -1,3 +1,4 @@
+// index.tsx (Código modificado)
 import React, { useState, useCallback, useEffect } from "react";
 import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -27,7 +28,7 @@ const SIGNAL_MARKERS = {
 
 // Caracteres especiales no permitidos
 const CARACTERES_NO_PERMITIDOS = [
-  '.', ',', ';', ':', '!', '-', '_', '@', '#', '$', '%', '&',
+  '.', ',', ';', ':', '!', '-', '_', '@', '#', '$', '%', '&', "'", '"',
   '/', '\\', '(', ')', '[', ']', '{', '}', '=', '*', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 ];
 
@@ -59,14 +60,13 @@ const NOMBRES_CARACTERES: { [key: string]: string } = {
   '"': 'comillas',
   "'": 'comilla simple'
 };
-
 export default function Index() {
   const [texto, setTexto] = useState("");
   const [respuesta, setRespuesta] = useState<RespuestaAPI | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorValidacion, setErrorValidacion] = useState<{ caracter: string, nombre: string } | null>(null);
-
+  
   // Estados para la reproducción secuencial
   const [indiceLetraActual, setIndiceLetraActual] = useState(0);
   const [videoActual, setVideoActual] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export default function Index() {
   const [enPausa, setEnPausa] = useState(false);
   const [pausadoPorUsuario, setPausadoPorUsuario] = useState(false);
   const [deletreoInfo, setDeletreoInfo] = useState<string[]>([]);
-
+  
   // 🆕 Función para mostrar la información de ayuda
   const mostrarAyuda = () => {
     Alert.alert(
@@ -93,7 +93,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       [{ text: "Entendido" }]
     );
   };
-
+  
   // 🆕 Función para reiniciar completamente la aplicación al estado inicial
   const reiniciarApp = useCallback(() => {
     setTexto("");
@@ -109,23 +109,36 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     setDeletreoInfo([]);
   }, []);
 
+  // ⭐️ Refactorizado a useCallback fuera de useEffect ⭐️
+  const avanzarSecuencia = useCallback(() => {
+    
+    // Usar el patrón de función para asegurar que usamos el último estado
+    setIndiceLetraActual(prevIndice => {
+        const siguienteIndice = prevIndice + 1;
+        const totalElementos = secuenciaCompleta.length; // Usar el estado de secuenciaCompleta
 
-  const esSenal = videoActual === SIGNAL_MARKERS.inicio ||
-    videoActual === SIGNAL_MARKERS.fin ||
-    videoActual === SIGNAL_MARKERS.espacio;
-
-  const player = useVideoPlayer(
-    videoActual && !esSenal ? { uri: videoActual } : null,
-    (player) => {
-      if (player) {
-        player.loop = false;
-        player.muted = true;
-        if (!pausadoPorUsuario) {
-          player.play();
+        // Lógica de transición y reinicio
+        if (siguienteIndice < totalElementos) {
+            // Avance normal
+            setEnPausa(true);
+            setTimeout(() => {
+                setVideoActual(secuenciaCompleta[siguienteIndice]);
+                setEnPausa(false);
+            }, 100);
+        } else {
+            // Terminó la secuencia, reiniciar al INICIO
+            setEnPausa(true);
+            setTimeout(() => {
+                setVideoActual(secuenciaCompleta[0]);
+                setIndiceLetraActual(0); // Reiniciar el índice
+                setEnPausa(false);
+            }, 1000); // Pausa de 1 segundo antes de reiniciar
+            return 0; // Si reiniciamos, el nuevo índice es 0
         }
-      }
-    }
-  );
+        
+        return siguienteIndice; // Devolver el nuevo índice
+    });
+  }, [secuenciaCompleta]);
 
   const reiniciarReproduccion = useCallback(() => {
     if (secuenciaCompleta.length > 0) {
@@ -133,17 +146,15 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       setIndiceLetraActual(0);
       setVideoActual(secuenciaCompleta[0]);
       setEnPausa(false);
-      if (player) {
-        player.play(); // Asegurar que el player empiece
-      }
+      // No llamar a player.play() aquí, se maneja en el useEffect del player
     }
-  }, [secuenciaCompleta, player]);
+  }, [secuenciaCompleta]);
 
   // Validar caracteres antes de traducir
   const validarTexto = (texto: string): { valido: boolean; caracterInvalido?: string; nombreCaracter?: string } => {
     // Permitir el símbolo + para concatenación
     const textoSinMas = texto.replace(/\+/g, '');
-
+    
     for (const char of textoSinMas) {
       if (CARACTERES_NO_PERMITIDOS.includes(char)) {
         return {
@@ -162,7 +173,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     deletreoInfo: string[]
   }> => {
     const frases = textoCompleto.split('+').map(f => f.trim()).filter(f => f.length > 0);
-
+    
     let secuenciaFinal: string[] = [];
     let deletreoInfoFinal: string[] = [];
 
@@ -184,13 +195,19 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
 
         if (data.deletreo_activado && data.spell_urls && data.spell_urls.length > 0) {
           // Modo deletreo: agregar videos de letras, convirtiendo "espacio" en señal
-          const urlsProcesadas = data.spell_urls.map(url => {
-            // Si la URL está vacía, es un espacio
-            return url === "" ? SIGNAL_MARKERS.espacio : url;
+          const urlsProcesadas = data.spell_urls.map((url, index) => {
+            const deletreado = data.deletreo || [];
+            
+            // Si es un espacio real del deletreo (no el placeholder de la frase)
+            if (deletreado[index] === "espacio" && url === "") {
+                return SIGNAL_MARKERS.espacio;
+            }
+            
+            return url;
           });
-
+          
           secuenciaFinal.push(...urlsProcesadas);
-
+          
           // Agregar info de deletreo
           if (data.deletreo) {
             deletreoInfoFinal.push(...data.deletreo);
@@ -203,6 +220,12 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       } catch (err) {
         console.error(`Error al procesar frase "${frase}":`, err);
         throw err;
+      }
+      
+      // Añadir un espacio entre frases si no es la última y la secuencia no está vacía
+      if (secuenciaFinal.length > 0 && frase !== frases[frases.length - 1]) {
+        secuenciaFinal.push(SIGNAL_MARKERS.espacio);
+        deletreoInfoFinal.push("espacio");
       }
     }
 
@@ -241,9 +264,14 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
 
     try {
       console.log(`Intentando conectar a: ${API_URL}`);
-
+      
       // Procesar múltiples frases si hay +
       const { secuencia, deletreoInfo } = await procesarMultiplesFrases(texto);
+      
+      if (secuencia.length === 0) {
+           setError("No se pudo obtener la secuencia de videos. La respuesta de la API fue vacía.");
+           return;
+      }
 
       // Crear secuencia con INICIO y FIN
       const secuenciaConSenales = [
@@ -287,93 +315,70 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
   };
 
   // Player de video (solo si no es una señal)
+  const esSenal = videoActual === SIGNAL_MARKERS.inicio || 
+                  videoActual === SIGNAL_MARKERS.fin || 
+                  videoActual === SIGNAL_MARKERS.espacio;
 
-
-  // LÍNEA ~310
-  // Efecto para manejar la reproducción automática
-  useEffect(() => {
-    if (!videoActual || pausadoPorUsuario) return;
-
-    // Si es una señal, mostrarla por tiempo definido y pasar al siguiente
-    if (esSenal) {
-      // TIEMPO DE VISUALIZACIÓN DE SEÑALES: 100ms para INICIO/FIN, 800ms para ESPACIO
-      const duracion = videoActual === SIGNAL_MARKERS.espacio ? 800 : 100;
-
-      const timer = setTimeout(() => {
-        const siguienteIndice = indiceLetraActual + 1;
-        setEnPausa(true); // Pausa la lógica antes de cambiar
-
-        if (siguienteIndice < secuenciaCompleta.length) {
-          setIndiceLetraActual(siguienteIndice);
-          setVideoActual(secuenciaCompleta[siguienteIndice]);
-          setEnPausa(false); // Reanuda la lógica
-        } else {
-          // Terminó la secuencia, reiniciar al INICIO
-          setTimeout(() => {
-            setIndiceLetraActual(0);
-            setVideoActual(secuenciaCompleta[0]);
-            setEnPausa(false);
-          }, 1000); // Pequeña pausa al final
+  const player = useVideoPlayer(
+    videoActual && !esSenal ? { uri: videoActual } : null,
+    (player) => {
+      if (player) {
+        player.loop = false;
+        player.muted = true;
+        // 1. Inicia la reproducción inmediatamente al cargar si no está pausado por el usuario
+        if (!pausadoPorUsuario) {
+          player.play();
         }
-      }, duracion);
+      }
+    }
+  );
 
+  // ⭐️ useEffect PRINCIPAL (Consolidado) ⭐️
+  useEffect(() => {
+    // 1. Manejar pausa global del usuario
+    if (pausadoPorUsuario) {
+      player?.pause();
+      return;
+    }
+
+    // Si no hay video, o estamos en pausa de transición, no hacer nada
+    if (!videoActual || enPausa) return;
+
+    // 2. Lógica para Señales (INICIO, FIN, ESPACIO)
+    if (esSenal) {
+      const duracion = videoActual === SIGNAL_MARKERS.espacio ? 800 : 100;
+      
+      const timer = setTimeout(avanzarSecuencia, duracion);
       return () => clearTimeout(timer);
     }
 
-    // Manejar videos normales
-    if (!player || enPausa) return;
+    // 3. Lógica para Videos Normales (Reproducción y Avance)
+    if (!player) return;
 
-    // Volvemos al listener 'playingChange' pero con una lógica más estricta
-    // que verifica si la posición actual ha llegado al final.
+    // A. Asegurar que el video actual se cargue y reproduzca si no está ya reproduciendo
+    player.replace({ uri: videoActual });
+    if (!player.playing) {
+        player.play();
+    }
+    
+    // B. Añadir Listener de finalización de reproducción
     const subscription = player.addListener('playingChange', (newStatus) => {
-      // Usamos player.isLoaded y player.currentTime/duration si existen,
-      // pero dado que isLoaded no existe, confiamos en la finalización de newStatus.isPlaying
-
-      // La condición se simplifica a la detección de que el video terminó
-      if (newStatus.isPlaying === false && player.status === 'readyToPlay' && !enPausa && !pausadoPorUsuario) {
-        // Video terminó
-        if (secuenciaCompleta.length > 0) {
-          setEnPausa(true);
-
-          setTimeout(() => {
-            const siguienteIndice = indiceLetraActual + 1;
-
-            if (siguienteIndice < secuenciaCompleta.length) {
-              setIndiceLetraActual(siguienteIndice);
-              setVideoActual(secuenciaCompleta[siguienteIndice]);
-              setEnPausa(false);
-            } else {
-              // Terminó la secuencia, reiniciar al INICIO
-              setTimeout(() => {
-                setIndiceLetraActual(0);
-                setVideoActual(secuenciaCompleta[0]);
-                setEnPausa(false);
-              }, 1000);
-            }
-          }, 100);
+        // ⭐️ CORRECCIÓN 2: Usamos newStatus.isPlaying ⭐️
+        // Si no está reproduciendo Y no está pausado por el usuario, implica que la reproducción natural ha terminado.
+        if (newStatus.isPlaying === false && !pausadoPorUsuario) {
+             avanzarSecuencia(); 
         }
-      }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [player, videoActual, indiceLetraActual, secuenciaCompleta, enPausa, pausadoPorUsuario, esSenal]);
+  }, [videoActual, pausadoPorUsuario, esSenal, player, avanzarSecuencia, enPausa]);
 
-  // Actualizar el player cuando cambia el video (solo videos reales)
-  useEffect(() => {
-    if (videoActual && player && !enPausa && !esSenal) {
-      // SIN .catch() ni Async, usando la sintaxis síncrona
-      player.replace({ uri: videoActual }, true); // 'true' es para autoplay
 
-    } else if (pausadoPorUsuario && player) {
-      // Se quitó isLoaded
-      player.pause();
-    } else if (!pausadoPorUsuario && player) {
-      // Se quitó isLoaded
-      player.play();
-    }
-  }, [videoActual, enPausa, player, pausadoPorUsuario, esSenal]);
+  // ⭐️ Se eliminó el segundo useEffect (Líneas 371-402 del código anterior) ⭐️
+  // La lógica de carga/reemplazo/play se consolidó en el useEffect principal.
+
 
   const obtenerEstadoReproduccion = () => {
     if (secuenciaCompleta.length === 0) {
@@ -393,12 +398,15 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     // En medio, calcular índice real (sin contar INICIO)
     const indiceReal = indiceLetraActual - 1;
 
-    if (videoActual === SIGNAL_MARKERS.espacio) {
-      return `▶ Letra ${indiceReal + 1} de ${deletreoInfo.length}: [espacio]`;
+    // Obtener la información del elemento actual
+    const elementoActual = deletreoInfo[indiceReal];
+
+    if (videoActual === SIGNAL_MARKERS.espacio || elementoActual === "espacio") {
+      return `▶ Elemento ${indiceReal + 1} de ${deletreoInfo.length}: [espacio]`;
     }
 
     if (deletreoInfo && indiceReal >= 0 && indiceReal < deletreoInfo.length) {
-      return `▶ Letra ${indiceReal + 1} de ${deletreoInfo.length}: ${deletreoInfo[indiceReal]}`;
+      return `▶ Elemento ${indiceReal + 1} de ${deletreoInfo.length}: ${elementoActual}`;
     }
 
     return "";
