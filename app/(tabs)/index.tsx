@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { MaterialIcons } from "@expo/vector-icons"; // Importación de MaterialIcons
 
 // 1. Tipo de dato de la respuesta
 interface RespuestaAPI {
@@ -20,13 +21,14 @@ const API_URL = "http://192.168.0.159:8000/buscar";
 // Señales especiales (no son videos, son señales visuales)
 const SIGNAL_MARKERS = {
   inicio: "SIGNAL_INICIO",
-  fin: "SIGNAL_FIN"
+  fin: "SIGNAL_FIN",
+  espacio: "SIGNAL_ESPACIO" // Nueva señal para espacios
 };
 
 // Caracteres especiales no permitidos
 const CARACTERES_NO_PERMITIDOS = [
   '.', ',', ';', ':', '!', '-', '_', '@', '#', '$', '%', '&',
-  '/', '\\', '(', ')', '[', ']', '{', '}', '+', '=', '*','0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+  '/', '\\', '(', ')', '[', ']', '{', '}', '=', '*', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 ];
 
 const NOMBRES_CARACTERES: { [key: string]: string } = {
@@ -64,15 +66,85 @@ export default function Index() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorValidacion, setErrorValidacion] = useState<{ caracter: string, nombre: string } | null>(null);
-  // Estados para la reproducción secuencial de deletreo
+
+  // Estados para la reproducción secuencial
   const [indiceLetraActual, setIndiceLetraActual] = useState(0);
   const [videoActual, setVideoActual] = useState<string | null>(null);
   const [secuenciaCompleta, setSecuenciaCompleta] = useState<string[]>([]);
   const [enPausa, setEnPausa] = useState(false);
+  const [pausadoPorUsuario, setPausadoPorUsuario] = useState(false);
+  const [deletreoInfo, setDeletreoInfo] = useState<string[]>([]);
+
+  // 🆕 Función para mostrar la información de ayuda
+  const mostrarAyuda = () => {
+    Alert.alert(
+      "💡 ¿Cómo Funciona SingAI?",
+      `
+La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexicana (LSM).
+
+1. **Entrada de Texto:** Solo se permiten **letras** y **espacios**.
+2. **Concatenación:** Usa el símbolo **'+'** para traducir varias frases en una sola secuencia (ej: mi nombre es+Juan).
+3. **Caracteres No Permitidos:** Números y la mayoría de los símbolos (.,;:-_@#$...) serán rechazados.
+4. **Reproducción Secuencial:**
+   - La secuencia comienza con **INICIO** (Amarillo) y termina con **FIN** (Azul).
+   - Los **espacios** se representan con la señal [ _ ] (Verde).
+   - Los botones **⏸/▶** y **🔄** aparecen debajo del reproductor para controlar la secuencia.
+      `,
+      [{ text: "Entendido" }]
+    );
+  };
+
+  // 🆕 Función para reiniciar completamente la aplicación al estado inicial
+  const reiniciarApp = useCallback(() => {
+    setTexto("");
+    setRespuesta(null);
+    setCargando(false);
+    setError(null);
+    setErrorValidacion(null);
+    setIndiceLetraActual(0);
+    setVideoActual(null);
+    setSecuenciaCompleta([]);
+    setEnPausa(false);
+    setPausadoPorUsuario(false);
+    setDeletreoInfo([]);
+  }, []);
+
+
+  const esSenal = videoActual === SIGNAL_MARKERS.inicio ||
+    videoActual === SIGNAL_MARKERS.fin ||
+    videoActual === SIGNAL_MARKERS.espacio;
+
+  const player = useVideoPlayer(
+    videoActual && !esSenal ? { uri: videoActual } : null,
+    (player) => {
+      if (player) {
+        player.loop = false;
+        player.muted = true;
+        if (!pausadoPorUsuario) {
+          player.play();
+        }
+      }
+    }
+  );
+
+  const reiniciarReproduccion = useCallback(() => {
+    if (secuenciaCompleta.length > 0) {
+      setPausadoPorUsuario(false); // Asegurar que se reanude
+      setIndiceLetraActual(0);
+      setVideoActual(secuenciaCompleta[0]);
+      setEnPausa(false);
+      if (player) {
+        player.play(); // Asegurar que el player empiece
+      }
+    }
+  }, [secuenciaCompleta, player]);
 
   // Validar caracteres antes de traducir
   const validarTexto = (texto: string): { valido: boolean; caracterInvalido?: string; nombreCaracter?: string } => {
-    for (const char of texto) {
+    // Permitir el símbolo + para concatenación
+    const textoSinMas = texto.replace(/\+/g, '');
+
+    for (const char of textoSinMas) {
       if (CARACTERES_NO_PERMITIDOS.includes(char)) {
         return {
           valido: false,
@@ -82,6 +154,59 @@ export default function Index() {
       }
     }
     return { valido: true };
+  };
+
+  // Función para procesar múltiples frases con +
+  const procesarMultiplesFrases = async (textoCompleto: string): Promise<{
+    secuencia: string[],
+    deletreoInfo: string[]
+  }> => {
+    const frases = textoCompleto.split('+').map(f => f.trim()).filter(f => f.length > 0);
+
+    let secuenciaFinal: string[] = [];
+    let deletreoInfoFinal: string[] = [];
+
+    for (const frase of frases) {
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ texto: frase }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error HTTP: ${response.status}`);
+        }
+
+        const data: RespuestaAPI = await response.json();
+
+        if (data.deletreo_activado && data.spell_urls && data.spell_urls.length > 0) {
+          // Modo deletreo: agregar videos de letras, convirtiendo "espacio" en señal
+          const urlsProcesadas = data.spell_urls.map(url => {
+            // Si la URL está vacía, es un espacio
+            return url === "" ? SIGNAL_MARKERS.espacio : url;
+          });
+
+          secuenciaFinal.push(...urlsProcesadas);
+
+          // Agregar info de deletreo
+          if (data.deletreo) {
+            deletreoInfoFinal.push(...data.deletreo);
+          }
+        } else if (data.url_video) {
+          // Modo frase: agregar video de frase completa
+          secuenciaFinal.push(data.url_video);
+          deletreoInfoFinal.push(data.frase_similar);
+        }
+      } catch (err) {
+        console.error(`Error al procesar frase "${frase}":`, err);
+        throw err;
+      }
+    }
+
+    return { secuencia: secuenciaFinal, deletreoInfo: deletreoInfoFinal };
   };
 
   const traducir = useCallback(async () => {
@@ -98,7 +223,6 @@ export default function Index() {
         caracter: validacion.caracterInvalido!,
         nombre: validacion.nombreCaracter!,
       });
-      // También limpiamos el resultado anterior y cargando
       setRespuesta(null);
       setCargando(false);
       setError(null);
@@ -112,57 +236,43 @@ export default function Index() {
     setVideoActual(null);
     setSecuenciaCompleta([]);
     setEnPausa(false);
+    setPausadoPorUsuario(false);
+    setDeletreoInfo([]);
 
     try {
       console.log(`Intentando conectar a: ${API_URL}`);
-      let response;
-      let lastError = null;
 
-      // Reintento con backoff (máx 3 intentos)
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          response = await fetch(API_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ texto }),
-          });
+      // Procesar múltiples frases si hay +
+      const { secuencia, deletreoInfo } = await procesarMultiplesFrases(texto);
 
-          if (response.ok) break;
-          throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
-        } catch (err) {
-          lastError = err;
-          console.error(`Intento ${attempt + 1} fallido. Esperando ${500 * (attempt + 1)}ms...`, err);
-          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-        }
-      }
+      // Crear secuencia con INICIO y FIN
+      const secuenciaConSenales = [
+        SIGNAL_MARKERS.inicio,
+        ...secuencia,
+        SIGNAL_MARKERS.fin
+      ];
 
-      if (!response || !response.ok) {
-        throw lastError || new Error("Falló la conexión después de múltiples reintentos.");
-      }
+      setSecuenciaCompleta(secuenciaConSenales);
+      setDeletreoInfo(deletreoInfo);
+      setVideoActual(secuenciaConSenales[0]);
+      setIndiceLetraActual(0);
 
-      const data: RespuestaAPI = await response.json();
-      setRespuesta(data);
-
-      // Inicializar el video correspondiente
-      if (data.deletreo_activado && data.spell_urls && data.spell_urls.length > 0) {
-        // Crear secuencia: INICIO + letras + FIN
-        const secuencia = [
-          SIGNAL_MARKERS.inicio,
-          ...data.spell_urls,
-          SIGNAL_MARKERS.fin
-        ];
-        setSecuenciaCompleta(secuencia);
-        setVideoActual(secuencia[0]);
-        setIndiceLetraActual(0);
-      } else if (data.url_video) {
-        setVideoActual(data.url_video);
-      }
+      // Crear respuesta consolidada para mostrar
+      setRespuesta({
+        query: texto,
+        grupo: null,
+        frase_similar: deletreoInfo.join(" "),
+        similitud: 1.0,
+        deletreo_activado: true, // Siempre true si se usa procesarMultiplesFrases
+        deletreo: deletreoInfo,
+        total_caracteres: deletreoInfo.length,
+        url_video: "",
+        spell_urls: secuencia
+      });
 
     } catch (err) {
-      console.error("Error definitivo al conectar con la API:", err);
-      const errorMessage = `No se pudo contactar al servidor de PLN. Detalle: ${(err as Error).message}. Asegúrate de que la API esté corriendo y la IP sea correcta.`;
+      console.error("Error al conectar con la API:", err);
+      const errorMessage = `No se pudo contactar al servidor. Detalle: ${(err as Error).message}`;
       setError(errorMessage);
       Alert.alert("Error de Conexión", errorMessage);
       setRespuesta(null);
@@ -171,82 +281,76 @@ export default function Index() {
     }
   }, [texto]);
 
+  // Función para pausar/reanudar
+  const togglePausa = () => {
+    setPausadoPorUsuario(prev => !prev);
+  };
+
   // Player de video (solo si no es una señal)
-  const esSenal = videoActual === SIGNAL_MARKERS.inicio || videoActual === SIGNAL_MARKERS.fin;
 
-  const player = useVideoPlayer(
-    videoActual && !esSenal ? { uri: videoActual } : null,
-    (player) => {
-      if (player) {
-        player.loop = false;
-        player.muted = false;
-        player.play();
-      }
-    }
-  );
 
-  // Efecto para manejar la reproducción de videos y señales
+  // LÍNEA ~310
+  // Efecto para manejar la reproducción automática
   useEffect(() => {
-    if (!videoActual) return;
+    if (!videoActual || pausadoPorUsuario) return;
 
-    // Si es una señal, mostrarla por 2 segundos y pasar al siguiente
-    if (videoActual === SIGNAL_MARKERS.inicio || videoActual === SIGNAL_MARKERS.fin) {
+    // Si es una señal, mostrarla por tiempo definido y pasar al siguiente
+    if (esSenal) {
+      // TIEMPO DE VISUALIZACIÓN DE SEÑALES: 100ms para INICIO/FIN, 800ms para ESPACIO
+      const duracion = videoActual === SIGNAL_MARKERS.espacio ? 800 : 100;
+
       const timer = setTimeout(() => {
-        if (respuesta?.deletreo_activado && secuenciaCompleta.length > 0) {
-          const siguienteIndice = indiceLetraActual + 1;
+        const siguienteIndice = indiceLetraActual + 1;
+        setEnPausa(true); // Pausa la lógica antes de cambiar
 
-          if (siguienteIndice < secuenciaCompleta.length) {
-            setIndiceLetraActual(siguienteIndice);
-            setVideoActual(secuenciaCompleta[siguienteIndice]);
-          } else {
-            // Terminó la secuencia completa, reiniciar
-            setTimeout(() => {
-              setIndiceLetraActual(0);
-              setVideoActual(secuenciaCompleta[0]);
-            }, 1000);
-          }
+        if (siguienteIndice < secuenciaCompleta.length) {
+          setIndiceLetraActual(siguienteIndice);
+          setVideoActual(secuenciaCompleta[siguienteIndice]);
+          setEnPausa(false); // Reanuda la lógica
+        } else {
+          // Terminó la secuencia, reiniciar al INICIO
+          setTimeout(() => {
+            setIndiceLetraActual(0);
+            setVideoActual(secuenciaCompleta[0]);
+            setEnPausa(false);
+          }, 1000); // Pequeña pausa al final
         }
-      }, 2000); // Mostrar señal por 2 segundos
+      }, duracion);
 
       return () => clearTimeout(timer);
     }
 
-    // Si no es una señal, manejar videos normales
-    if (!player) return;
+    // Manejar videos normales
+    if (!player || enPausa) return;
 
+    // Volvemos al listener 'playingChange' pero con una lógica más estricta
+    // que verifica si la posición actual ha llegado al final.
     const subscription = player.addListener('playingChange', (newStatus) => {
-      if (newStatus.isPlaying === false && player.status === 'readyToPlay' && !enPausa) {
-        // Video terminó
-        if (respuesta?.deletreo_activado && secuenciaCompleta.length > 0) {
-          // Modo deletreo: reproducir secuencia completa
-          const siguienteIndice = indiceLetraActual + 1;
+      // Usamos player.isLoaded y player.currentTime/duration si existen,
+      // pero dado que isLoaded no existe, confiamos en la finalización de newStatus.isPlaying
 
-          if (siguienteIndice < secuenciaCompleta.length) {
-            // Hay más videos en la secuencia
-            setEnPausa(true);
-            setTimeout(() => {
+      // La condición se simplifica a la detección de que el video terminó
+      if (newStatus.isPlaying === false && player.status === 'readyToPlay' && !enPausa && !pausadoPorUsuario) {
+        // Video terminó
+        if (secuenciaCompleta.length > 0) {
+          setEnPausa(true);
+
+          setTimeout(() => {
+            const siguienteIndice = indiceLetraActual + 1;
+
+            if (siguienteIndice < secuenciaCompleta.length) {
               setIndiceLetraActual(siguienteIndice);
               setVideoActual(secuenciaCompleta[siguienteIndice]);
               setEnPausa(false);
-            }, 100); // Pausa de 500ms entre videos
-          } else {
-            // Terminó la secuencia completa, reiniciar
-            setEnPausa(true);
-            setTimeout(() => {
-              setIndiceLetraActual(0);
-              setVideoActual(secuenciaCompleta[0]);
-              setEnPausa(false);
-            }, 1000); // Pausa de 1 segundo antes de reiniciar
-          }
-        } else {
-          // Modo frase: loop con pausa de 1 segundo
-          setEnPausa(true);
-          setTimeout(() => {
-            if (player && videoActual) {
-              player.replay();
-              setEnPausa(false);
+            } else {
+              // Terminó la secuencia, reiniciar al INICIO
+              setTimeout(() => {
+                setIndiceLetraActual(0);
+                setVideoActual(secuenciaCompleta[0]);
+                setEnPausa(false);
+              }, 1000);
             }
-          }, 1000); // Pausa de 1 segundo entre repeticiones
+          }, 100);
         }
       }
     });
@@ -254,23 +358,27 @@ export default function Index() {
     return () => {
       subscription.remove();
     };
-  }, [player, videoActual, respuesta, indiceLetraActual, secuenciaCompleta, enPausa]);
+  }, [player, videoActual, indiceLetraActual, secuenciaCompleta, enPausa, pausadoPorUsuario, esSenal]);
 
-  // Actualizar el player cuando cambia el video actual (solo si no es señal)
+  // Actualizar el player cuando cambia el video (solo videos reales)
   useEffect(() => {
-    const esSenal = videoActual === SIGNAL_MARKERS.inicio || videoActual === SIGNAL_MARKERS.fin;
     if (videoActual && player && !enPausa && !esSenal) {
-      player.replace({ uri: videoActual });
+      // SIN .catch() ni Async, usando la sintaxis síncrona
+      player.replace({ uri: videoActual }, true); // 'true' es para autoplay
+
+    } else if (pausadoPorUsuario && player) {
+      // Se quitó isLoaded
+      player.pause();
+    } else if (!pausadoPorUsuario && player) {
+      // Se quitó isLoaded
       player.play();
     }
-  }, [videoActual, enPausa, player]);
+  }, [videoActual, enPausa, player, pausadoPorUsuario, esSenal]);
 
   const obtenerEstadoReproduccion = () => {
-    if (!respuesta?.deletreo_activado || secuenciaCompleta.length === 0) {
+    if (secuenciaCompleta.length === 0) {
       return "";
     }
-
-    const totalLetras = respuesta.deletreo?.length || 0;
 
     // Índice 0 es INICIO
     if (indiceLetraActual === 0) {
@@ -282,19 +390,61 @@ export default function Index() {
       return "▶ SEÑAL DE FIN";
     }
 
-    // En medio, mostrar la letra actual
-    const indiceLetra = indiceLetraActual - 1; // Restar 1 porque el índice 0 es INICIO
-    if (respuesta.deletreo && indiceLetra >= 0 && indiceLetra < respuesta.deletreo.length) {
-      return `▶ Letra ${indiceLetra + 1} de ${totalLetras}: ${respuesta.deletreo[indiceLetra]}`;
+    // En medio, calcular índice real (sin contar INICIO)
+    const indiceReal = indiceLetraActual - 1;
+
+    if (videoActual === SIGNAL_MARKERS.espacio) {
+      return `▶ Letra ${indiceReal + 1} de ${deletreoInfo.length}: [espacio]`;
+    }
+
+    if (deletreoInfo && indiceReal >= 0 && indiceReal < deletreoInfo.length) {
+      return `▶ Letra ${indiceReal + 1} de ${deletreoInfo.length}: ${deletreoInfo[indiceReal]}`;
     }
 
     return "";
   };
 
+  // Componente para los botones de control (Pausa/Reinicio)
+  const VideoControls = () => {
+    const mostrarControles = secuenciaCompleta.length > 0;
+
+    if (!mostrarControles) {
+      return null;
+    }
+
+    return (
+      <View style={styles.controlsContainer}>
+        {/* Botón de Pausa / Reanudar */}
+        <TouchableOpacity
+          style={[styles.controlButton, pausadoPorUsuario && styles.controlButtonActive]}
+          onPress={togglePausa}
+        >
+          <MaterialIcons
+            name={pausadoPorUsuario ? "play-arrow" : "pause"}
+            size={24}
+            color="white"
+          />
+        </TouchableOpacity>
+
+        {/* Botón de Reiniciar Secuencia */}
+        <TouchableOpacity
+          style={[styles.controlButton, styles.controlButtonRestart]}
+          onPress={reiniciarReproduccion}
+        >
+          <MaterialIcons
+            name="restart-alt"
+            size={24}
+            color="white"
+          />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const RespuestaResultado = () => {
     if (respuesta) {
       const titulo = respuesta.deletreo_activado
-        ? "Deletreo Activado (Similitud Baja)"
+        ? "Traducción en Progreso"
         : `Frase Sugerida (${respuesta.grupo})`;
 
       const fraseMostrada = respuesta.frase_similar;
@@ -305,15 +455,15 @@ export default function Index() {
             {titulo}: {fraseMostrada}
           </Text>
 
-          {/* Mostrar lista de deletreo si está activo */}
           {respuesta.deletreo_activado && respuesta.deletreo && (
             <>
               <Text style={styles.similarityText}>
-                Letras: {respuesta.deletreo.join(", ")}
+                Secuencia: {respuesta.deletreo.join(", ")}
               </Text>
               <Text style={styles.progressText}>
                 {obtenerEstadoReproduccion()}
               </Text>
+
               <Text style={styles.infoText}>
                 🔄 La secuencia se repetirá automáticamente
               </Text>
@@ -325,10 +475,6 @@ export default function Index() {
               🔄 El video se repetirá automáticamente
             </Text>
           )}
-
-          <Text style={styles.similarityText}>
-            Similitud: {(respuesta.similitud * 100).toFixed(2)}%
-          </Text>
         </View>
       );
     }
@@ -339,60 +485,85 @@ export default function Index() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>Traductor Español → LSM</Text>
+        <Text style={styles.headerText}>SingAI</Text>
       </View>
 
       {/* Contenido principal */}
       <View style={styles.animationBox}>
+
+        {/* 🆕 Botones de Ayuda y Reinicio de App */}
+        <View style={styles.overlayButtons}>
+          {/* Botón de Pista/Ayuda (Esquina Superior Izquierda) */}
+          <TouchableOpacity
+            style={[styles.utilityButton, styles.helpButton]}
+            onPress={mostrarAyuda}
+            disabled={cargando}
+          >
+            <MaterialIcons name="lightbulb" size={24} color="#000" />
+          </TouchableOpacity>
+
+          {/* Botón de Reinicio de App (Esquina Superior Derecha) */}
+          <TouchableOpacity
+            style={[styles.utilityButton, styles.homeButton]}
+            onPress={reiniciarApp}
+            disabled={cargando}
+          >
+            <MaterialIcons name="home" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
+        {/* -------------------------------------- */}
+
         {cargando ? (
           <ActivityIndicator size="large" color="#FFD700" />
-        ) : errorValidacion ? ( // 👈 NUEVA LÓGICA DE ERROR DE VALIDACIÓN
+        ) : errorValidacion ? (
           <View style={[styles.videoPlayer, styles.errorValidationContainer]}>
-            <Text style={styles.errorValidationTitle}>❌ Carácter No Permitido ❌</Text>
+            <Text style={styles.errorValidationTitle}>⛔ Carácter No Permitido ⛔</Text>
             <Text style={styles.errorValidationText}>
               {`El carácter "${errorValidacion.caracter}" (${errorValidacion.nombre}) no está permitido.`}
             </Text>
             <Text style={styles.errorValidationSubtitle}>
-              Solo se permiten letras y espacios para la traducción.
+              Solo se permiten letras, espacios y el símbolo + para concatenar frases.
             </Text>
           </View>
-       ) : videoActual === SIGNAL_MARKERS.inicio ? (
-            // Mostrar señal de INICIO en el espacio del video
-            <View style={styles.videoPlayer}>
-              <View style={styles.signalContainer}>
-                <View style={[styles.signalCircle, styles.signalInicio]}>
-                  <Text style={styles.signalText}>INICIO</Text>
-                </View>
+        ) : videoActual === SIGNAL_MARKERS.inicio ? (
+          <View style={styles.videoPlayer}>
+            <View style={styles.signalContainer}>
+              <View style={[styles.signalCircle, styles.signalInicio]}>
+                <Text style={styles.signalText}>INICIO</Text>
               </View>
             </View>
-          ) : videoActual === SIGNAL_MARKERS.fin ? (
-            // Mostrar señal de FIN en el espacio del video
-            <View style={styles.videoPlayer}>
-              <View style={styles.signalContainer}>
-                <View style={[styles.signalCircle, styles.signalFin]}>
-                  <Text style={styles.signalText}>FIN</Text>
-                </View>
+          </View>
+        ) : videoActual === SIGNAL_MARKERS.fin ? (
+          <View style={styles.videoPlayer}>
+            <View style={styles.signalContainer}>
+              <View style={[styles.signalCircle, styles.signalFin]}>
+                <Text style={styles.signalText}>FIN</Text>
               </View>
             </View>
-          ) : videoActual ? (
-            <>
-              <VideoView
-                style={styles.videoPlayer}
-                player={player}
-                // allowsFullscreen
-                // allowsPictureInPicture
-              />
-              {enPausa && (
-                <View style={styles.pauseIndicator}>
-                  <Text style={styles.pauseText}>⏸ Pausa</Text>
-                </View>
-              )}
-            </>
-          ) : (
-            <Text style={{ color: "gray", textAlign: "center" }}>
-              Ingresa una frase para ver la traducción en LSM.
-            </Text>
-          )}
+          </View>
+        ) : videoActual === SIGNAL_MARKERS.espacio ? (
+          <View style={styles.videoPlayer}>
+            <View style={styles.signalContainer}>
+              <View style={[styles.signalCircle, styles.signalEspacio]}>
+                <Text style={styles.signalText}>[ _ ]</Text>
+              </View>
+            </View>
+          </View>
+        ) : videoActual ? (
+          <VideoView
+            style={styles.videoPlayer}
+            player={player}
+            nativeControls={false}
+          />
+        ) : (
+          <Text style={{ color: "gray", textAlign: "center" }}>
+            Ingresa una frase para ver la traducción en LSM.
+            {"\n\n"}
+            💡 Usa el símbolo + para concatenar frases
+            {"\n"}
+            Ejemplo: mi nombre es+Ivan
+          </Text>
+        )}
 
         {/* Error visual */}
         {error && (
@@ -403,11 +574,14 @@ export default function Index() {
         )}
       </View>
 
+      {/* Controles de Video */}
+      <VideoControls />
+
       {/* Input y resultado */}
       <View style={styles.inputBox}>
         <TextInput
           style={styles.input}
-          placeholder="Escribe una palabra o frase (solo letras)"
+          placeholder="Ej: mi nombre es+Ivan"
           value={texto}
           onChangeText={setTexto}
           editable={!cargando}
@@ -422,7 +596,7 @@ export default function Index() {
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Proyecto TT LSM</Text>
+        <Text style={styles.footerText}>SingAI</Text>
       </View>
     </View>
   );
@@ -451,27 +625,80 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     backgroundColor: "#fff",
     width: "100%",
+    // 🆕 Esencial para posicionar los botones absolutos
+    position: 'relative',
   },
+  // 🆕 Estilos para los botones de utilidad (Ayuda y Home)
+  overlayButtons: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 10, // Asegura que estén por encima del video
+  },
+  utilityButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    borderColor: '#ccc',
+    borderWidth: 1,
+  },
+  helpButton: {
+    // Esquina superior izquierda
+  },
+  homeButton: {
+    // Esquina superior derecha
+  },
+  // ------------------------------------------------------------------
   videoPlayer: {
     width: "100%",
     maxWidth: 360,
     aspectRatio: 1,
     alignSelf: "center",
     borderRadius: 10,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#ffffffff",
+    overflow: "hidden",
   },
-  pauseIndicator: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#fff',
   },
-  pauseText: {
+  controlButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#007bff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  controlButtonActive: {
+    backgroundColor: "#28a745", // Verde para Reanudar
+  },
+  controlButtonRestart: {
+    backgroundColor: "#dc3545", // Rojo para Reiniciar
+  },
+  controlButtonText: {
     color: "white",
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: "bold",
   },
   inputBox: {
@@ -547,7 +774,7 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#ffffffff",
+    backgroundColor: "#ffffff",
     borderRadius: 10,
   },
   signalCircle: {
@@ -566,10 +793,13 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   signalInicio: {
-    backgroundColor: "#FFD700", // Amarillo
+    backgroundColor: "#FFD700",
   },
   signalFin: {
-    backgroundColor: "#4169E1", // Azul
+    backgroundColor: "#4169E1",
+  },
+  signalEspacio: {
+    backgroundColor: "#90EE90",
   },
   signalText: {
     fontSize: 32,
@@ -580,32 +810,32 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   errorValidationContainer: {
-  justifyContent: "center",
-  alignItems: "center",
-  backgroundColor: "#ffe0e0", // Un rojo muy suave
-  padding: 20,
-  borderWidth: 2,
-  borderColor: "#e53e3e", // Rojo
-  width: "100%",
-},
-errorValidationTitle: {
-  fontSize: 18,
-  fontWeight: "bold",
-  color: "#e53e3e",
-  marginBottom: 10,
-  textAlign: "center",
-},
-errorValidationText: {
-  fontSize: 16,
-  color: "#333",
-  marginBottom: 5,
-  textAlign: "center",
-},
-errorValidationSubtitle: {
-  fontSize: 14,
-  color: "#666",
-  marginTop: 10,
-  textAlign: "center",
-  fontStyle: "italic",
-},
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#ffe0e0",
+    padding: 20,
+    borderWidth: 2,
+    borderColor: "#e53e3e",
+    width: "100%",
+  },
+  errorValidationTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#e53e3e",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  errorValidationText: {
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 5,
+    textAlign: "center",
+  },
+  errorValidationSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 10,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
 });
