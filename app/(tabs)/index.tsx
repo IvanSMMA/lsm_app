@@ -1,10 +1,8 @@
-// index.tsx (Código modificado)
 import React, { useState, useCallback, useEffect } from "react";
 import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { MaterialIcons } from "@expo/vector-icons"; // Importación de MaterialIcons
+import { MaterialIcons } from "@expo/vector-icons"; 
 
-// 1. Tipo de dato de la respuesta
 interface RespuestaAPI {
   query: string;
   grupo: string | null;
@@ -17,16 +15,16 @@ interface RespuestaAPI {
   spell_urls: string[] | null;
 }
 
-const API_URL = "http://192.168.0.159:8000/buscar";
+// const API_URL = "https://modulo-pln-vf.onrender.com/buscar";
+const API_URL = "https://ivanSNMA-singai-pln-matcher.hf.space/buscar"
 
-// Señales especiales (no son videos, son señales visuales)
 const SIGNAL_MARKERS = {
   inicio: "SIGNAL_INICIO",
   fin: "SIGNAL_FIN",
-  espacio: "SIGNAL_ESPACIO" // Nueva señal para espacios
+  espacio: "SIGNAL_ESPACIO" 
 };
 
-// Caracteres especiales no permitidos
+
 const CARACTERES_NO_PERMITIDOS = [
   '.', ',', ';', ':', '!', '-', '_', '@', '#', '$', '%', '&', "'", '"',
   '/', '\\', '(', ')', '[', ']', '{', '}', '=', '*', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
@@ -67,7 +65,7 @@ export default function Index() {
   const [error, setError] = useState<string | null>(null);
   const [errorValidacion, setErrorValidacion] = useState<{ caracter: string, nombre: string } | null>(null);
   
-  // Estados para la reproducción secuencial
+  
   const [indiceLetraActual, setIndiceLetraActual] = useState(0);
   const [videoActual, setVideoActual] = useState<string | null>(null);
   const [secuenciaCompleta, setSecuenciaCompleta] = useState<string[]>([]);
@@ -75,26 +73,33 @@ export default function Index() {
   const [pausadoPorUsuario, setPausadoPorUsuario] = useState(false);
   const [deletreoInfo, setDeletreoInfo] = useState<string[]>([]);
   
-  // 🆕 Función para mostrar la información de ayuda
-  const mostrarAyuda = () => {
-    Alert.alert(
-      "💡 ¿Cómo Funciona SingAI?",
-      `
-La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexicana (LSM).
-
-1. **Entrada de Texto:** Solo se permiten **letras** y **espacios**.
-2. **Concatenación:** Usa el símbolo **'+'** para traducir varias frases en una sola secuencia (ej: mi nombre es+Juan).
-3. **Caracteres No Permitidos:** Números y la mayoría de los símbolos (.,;:-_@#$...) serán rechazados.
-4. **Reproducción Secuencial:**
-   - La secuencia comienza con **INICIO** (Amarillo) y termina con **FIN** (Azul).
-   - Los **espacios** se representan con la señal [ _ ] (Verde).
-   - Los botones **⏸/▶** y **🔄** aparecen debajo del reproductor para controlar la secuencia.
-      `,
-      [{ text: "Entendido" }]
-    );
-  };
   
-  // 🆕 Función para reiniciar completamente la aplicación al estado inicial
+  const mostrarAyuda = () => {
+  Alert.alert(
+    "💡 ¿CÓMO FUNCIONA SignAI?",
+    `
+ESTRUCTURA DE LA TRADUCCIÓN:
+
+1. ENTRADA DE TEXTO:
+   - Solo se permiten LETRAS y ESPACIOS.
+   - Usa el símbolo '+' para CONCATENAR varias frases en una sola secuencia (Ej: mi nombre es+Juan).
+
+2. CARACTERES NO PERMITIDOS:
+   - Los números y la mayoría de los SÍMBOLOS (.,;:-_@#$...) serán RECHAZADOS.
+
+3. FLUJO DE REPRODUCCIÓN SECUENCIAL:
+   - INICIO: La secuencia comienza con la señal AMARILLA (INICIO).
+   - FIN: La secuencia termina con la señal AZUL (FIN).
+   - ESPACIOS: Los espacios se representan con la señal VERDE [ _ ].
+
+4. CONTROLES:
+   - Los botones PAUSA/PLAY (⏸/▶) y REINICIO (🔄) aparecen debajo del reproductor para controlar la secuencia.
+    `,
+    [{ text: "ENTENDIDO" }]
+  );
+};
+  
+  
   const reiniciarApp = useCallback(() => {
     setTexto("");
     setRespuesta(null);
@@ -109,50 +114,50 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     setDeletreoInfo([]);
   }, []);
 
-  // ⭐️ Refactorizado a useCallback fuera de useEffect ⭐️
+  
   const avanzarSecuencia = useCallback(() => {
     
-    // Usar el patrón de función para asegurar que usamos el último estado
+    
     setIndiceLetraActual(prevIndice => {
         const siguienteIndice = prevIndice + 1;
-        const totalElementos = secuenciaCompleta.length; // Usar el estado de secuenciaCompleta
+        const totalElementos = secuenciaCompleta.length; 
 
-        // Lógica de transición y reinicio
+        
         if (siguienteIndice < totalElementos) {
-            // Avance normal
+            
             setEnPausa(true);
             setTimeout(() => {
                 setVideoActual(secuenciaCompleta[siguienteIndice]);
                 setEnPausa(false);
-            }, 100);
+            }, 1000);
         } else {
-            // Terminó la secuencia, reiniciar al INICIO
+            
             setEnPausa(true);
             setTimeout(() => {
                 setVideoActual(secuenciaCompleta[0]);
-                setIndiceLetraActual(0); // Reiniciar el índice
+                setIndiceLetraActual(0); 
                 setEnPausa(false);
-            }, 1000); // Pausa de 1 segundo antes de reiniciar
-            return 0; // Si reiniciamos, el nuevo índice es 0
+            }, 1000); 
+            return 0; 
         }
         
-        return siguienteIndice; // Devolver el nuevo índice
+        return siguienteIndice; 
     });
   }, [secuenciaCompleta]);
 
   const reiniciarReproduccion = useCallback(() => {
     if (secuenciaCompleta.length > 0) {
-      setPausadoPorUsuario(false); // Asegurar que se reanude
+      setPausadoPorUsuario(false); 
       setIndiceLetraActual(0);
       setVideoActual(secuenciaCompleta[0]);
       setEnPausa(false);
-      // No llamar a player.play() aquí, se maneja en el useEffect del player
+      
     }
   }, [secuenciaCompleta]);
 
-  // Validar caracteres antes de traducir
+  
   const validarTexto = (texto: string): { valido: boolean; caracterInvalido?: string; nombreCaracter?: string } => {
-    // Permitir el símbolo + para concatenación
+    
     const textoSinMas = texto.replace(/\+/g, '');
     
     for (const char of textoSinMas) {
@@ -167,7 +172,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     return { valido: true };
   };
 
-  // Función para procesar múltiples frases con +
+  
   const procesarMultiplesFrases = async (textoCompleto: string): Promise<{
     secuencia: string[],
     deletreoInfo: string[]
@@ -194,11 +199,11 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
         const data: RespuestaAPI = await response.json();
 
         if (data.deletreo_activado && data.spell_urls && data.spell_urls.length > 0) {
-          // Modo deletreo: agregar videos de letras, convirtiendo "espacio" en señal
+          
           const urlsProcesadas = data.spell_urls.map((url, index) => {
             const deletreado = data.deletreo || [];
             
-            // Si es un espacio real del deletreo (no el placeholder de la frase)
+            
             if (deletreado[index] === "espacio" && url === "") {
                 return SIGNAL_MARKERS.espacio;
             }
@@ -208,12 +213,12 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
           
           secuenciaFinal.push(...urlsProcesadas);
           
-          // Agregar info de deletreo
+          
           if (data.deletreo) {
             deletreoInfoFinal.push(...data.deletreo);
           }
         } else if (data.url_video) {
-          // Modo frase: agregar video de frase completa
+          
           secuenciaFinal.push(data.url_video);
           deletreoInfoFinal.push(data.frase_similar);
         }
@@ -222,7 +227,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
         throw err;
       }
       
-      // Añadir un espacio entre frases si no es la última y la secuencia no está vacía
+      
       if (secuenciaFinal.length > 0 && frase !== frases[frases.length - 1]) {
         secuenciaFinal.push(SIGNAL_MARKERS.espacio);
         deletreoInfoFinal.push("espacio");
@@ -239,7 +244,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       return;
     }
 
-    // Validar caracteres
+    
     const validacion = validarTexto(texto);
     if (!validacion.valido) {
       setErrorValidacion({
@@ -265,7 +270,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     try {
       console.log(`Intentando conectar a: ${API_URL}`);
       
-      // Procesar múltiples frases si hay +
+      
       const { secuencia, deletreoInfo } = await procesarMultiplesFrases(texto);
       
       if (secuencia.length === 0) {
@@ -273,7 +278,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
            return;
       }
 
-      // Crear secuencia con INICIO y FIN
+      
       const secuenciaConSenales = [
         SIGNAL_MARKERS.inicio,
         ...secuencia,
@@ -285,13 +290,13 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       setVideoActual(secuenciaConSenales[0]);
       setIndiceLetraActual(0);
 
-      // Crear respuesta consolidada para mostrar
+      
       setRespuesta({
         query: texto,
         grupo: null,
         frase_similar: deletreoInfo.join(" "),
         similitud: 1.0,
-        deletreo_activado: true, // Siempre true si se usa procesarMultiplesFrases
+        deletreo_activado: true, 
         deletreo: deletreoInfo,
         total_caracteres: deletreoInfo.length,
         url_video: "",
@@ -309,12 +314,12 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     }
   }, [texto]);
 
-  // Función para pausar/reanudar
+  
   const togglePausa = () => {
     setPausadoPorUsuario(prev => !prev);
   };
 
-  // Player de video (solo si no es una señal)
+  
   const esSenal = videoActual === SIGNAL_MARKERS.inicio || 
                   videoActual === SIGNAL_MARKERS.fin || 
                   videoActual === SIGNAL_MARKERS.espacio;
@@ -325,7 +330,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       if (player) {
         player.loop = false;
         player.muted = true;
-        // 1. Inicia la reproducción inmediatamente al cargar si no está pausado por el usuario
+        
         if (!pausadoPorUsuario) {
           player.play();
         }
@@ -333,38 +338,38 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     }
   );
 
-  // ⭐️ useEffect PRINCIPAL (Consolidado) ⭐️
+  
   useEffect(() => {
-    // 1. Manejar pausa global del usuario
+    
     if (pausadoPorUsuario) {
       player?.pause();
       return;
     }
 
-    // Si no hay video, o estamos en pausa de transición, no hacer nada
+    
     if (!videoActual || enPausa) return;
 
-    // 2. Lógica para Señales (INICIO, FIN, ESPACIO)
+    
     if (esSenal) {
-      const duracion = videoActual === SIGNAL_MARKERS.espacio ? 800 : 100;
+      const duracion = videoActual === SIGNAL_MARKERS.espacio ? 500 : 500;
       
       const timer = setTimeout(avanzarSecuencia, duracion);
       return () => clearTimeout(timer);
     }
 
-    // 3. Lógica para Videos Normales (Reproducción y Avance)
+    
     if (!player) return;
 
-    // A. Asegurar que el video actual se cargue y reproduzca si no está ya reproduciendo
+    
     player.replace({ uri: videoActual });
     if (!player.playing) {
         player.play();
     }
     
-    // B. Añadir Listener de finalización de reproducción
+    
     const subscription = player.addListener('playingChange', (newStatus) => {
-        // ⭐️ CORRECCIÓN 2: Usamos newStatus.isPlaying ⭐️
-        // Si no está reproduciendo Y no está pausado por el usuario, implica que la reproducción natural ha terminado.
+        
+        
         if (newStatus.isPlaying === false && !pausadoPorUsuario) {
              avanzarSecuencia(); 
         }
@@ -376,8 +381,8 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
   }, [videoActual, pausadoPorUsuario, esSenal, player, avanzarSecuencia, enPausa]);
 
 
-  // ⭐️ Se eliminó el segundo useEffect (Líneas 371-402 del código anterior) ⭐️
-  // La lógica de carga/reemplazo/play se consolidó en el useEffect principal.
+  
+  
 
 
   const obtenerEstadoReproduccion = () => {
@@ -385,20 +390,20 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       return "";
     }
 
-    // Índice 0 es INICIO
+    
     if (indiceLetraActual === 0) {
       return "▶ SEÑAL DE INICIO";
     }
 
-    // Último índice es FIN
+    
     if (indiceLetraActual === secuenciaCompleta.length - 1) {
       return "▶ SEÑAL DE FIN";
     }
 
-    // En medio, calcular índice real (sin contar INICIO)
+    
     const indiceReal = indiceLetraActual - 1;
 
-    // Obtener la información del elemento actual
+    
     const elementoActual = deletreoInfo[indiceReal];
 
     if (videoActual === SIGNAL_MARKERS.espacio || elementoActual === "espacio") {
@@ -412,7 +417,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     return "";
   };
 
-  // Componente para los botones de control (Pausa/Reinicio)
+  
   const VideoControls = () => {
     const mostrarControles = secuenciaCompleta.length > 0;
 
@@ -472,9 +477,6 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
                 {obtenerEstadoReproduccion()}
               </Text>
 
-              <Text style={styles.infoText}>
-                🔄 La secuencia se repetirá automáticamente
-              </Text>
             </>
           )}
 
@@ -493,7 +495,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>SingAI</Text>
+        <Text style={styles.headerText}>SignAI <MaterialIcons name="waving-hand" size={24} color="#000000ff" /></Text>
       </View>
 
       {/* Contenido principal */}
@@ -507,7 +509,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
             onPress={mostrarAyuda}
             disabled={cargando}
           >
-            <MaterialIcons name="lightbulb" size={24} color="#000" />
+            <MaterialIcons name="emoji-objects" size={24} color="#000000ff" />
           </TouchableOpacity>
 
           {/* Botón de Reinicio de App (Esquina Superior Derecha) */}
@@ -516,7 +518,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
             onPress={reiniciarApp}
             disabled={cargando}
           >
-            <MaterialIcons name="home" size={24} color="#000" />
+            <MaterialIcons name="stop-circle" size={24} color="#000" />
           </TouchableOpacity>
         </View>
         {/* -------------------------------------- */}
@@ -564,14 +566,23 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
             nativeControls={false}
           />
         ) : (
-          <Text style={{ color: "gray", textAlign: "center" }}>
-            Ingresa una frase para ver la traducción en LSM.
-            {"\n\n"}
-            💡 Usa el símbolo + para concatenar frases
-            {"\n"}
-            Ejemplo: mi nombre es+Ivan
-          </Text>
-        )}
+  <View style={styles.videoPlayer}>
+    <View style={styles.welcomeContainer}>
+      
+      {/* 1. Icono de Saludo Grande (MaterialIcons: waving-hand o similar) */}
+      <Text style={styles.welcomeText}>🙌🏻</Text>
+      {/* <MaterialIcons name="waving-hand" size={90} color="#000000ff" style={styles.wavingHand} /> */}
+
+      {/* 2. Nombre de la Aplicación en Grande */}
+      <Text style={styles.welcomeText}>SignAI</Text>
+
+      {/* 3. Subtítulo opcional (opcional, para dar contexto) */}
+      <Text style={styles.subtitleText}>
+        Ingresa una frase para ver la traducción en LSM
+      </Text>
+    </View>
+  </View>
+)}
 
         {/* Error visual */}
         {error && (
@@ -589,7 +600,8 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
       <View style={styles.inputBox}>
         <TextInput
           style={styles.input}
-          placeholder="Ej: mi nombre es+Ivan"
+          placeholder="Ingresa cualquier texto"
+          placeholderTextColor="#A9A9A9"
           value={texto}
           onChangeText={setTexto}
           editable={!cargando}
@@ -604,7 +616,7 @@ La aplicación traduce texto a una secuencia de videos de Lengua de Señas Mexic
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>SingAI</Text>
+        <Text style={styles.footerText}>SignAI</Text>
       </View>
     </View>
   );
@@ -633,10 +645,10 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     backgroundColor: "#fff",
     width: "100%",
-    // 🆕 Esencial para posicionar los botones absolutos
+    
     position: 'relative',
   },
-  // 🆕 Estilos para los botones de utilidad (Ayuda y Home)
+  
   overlayButtons: {
     position: 'absolute',
     top: 10,
@@ -644,7 +656,7 @@ const styles = StyleSheet.create({
     right: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    zIndex: 10, // Asegura que estén por encima del video
+    zIndex: 10, 
   },
   utilityButton: {
     width: 40,
@@ -662,12 +674,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   helpButton: {
-    // Esquina superior izquierda
+    
   },
   homeButton: {
-    // Esquina superior derecha
+    
   },
-  // ------------------------------------------------------------------
+  
   videoPlayer: {
     width: "100%",
     maxWidth: 360,
@@ -699,10 +711,10 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   controlButtonActive: {
-    backgroundColor: "#28a745", // Verde para Reanudar
+    backgroundColor: "#007bff", 
   },
   controlButtonRestart: {
-    backgroundColor: "#dc3545", // Rojo para Reiniciar
+    backgroundColor: "#007bff", 
   },
   controlButtonText: {
     color: "white",
@@ -807,7 +819,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#4169E1",
   },
   signalEspacio: {
-    backgroundColor: "#90EE90",
+    backgroundColor: "#000000ff",
   },
   signalText: {
     fontSize: 32,
@@ -824,7 +836,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 2,
     borderColor: "#e53e3e",
-    width: "100%",
+    width: "70%",
   },
   errorValidationTitle: {
     fontSize: 18,
@@ -846,4 +858,37 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontStyle: "italic",
   },
+
+  
+
+
+
+welcomeContainer: {
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#fff',
+  width: '100%',
+},
+welcomeText: {
+  fontSize: 48,
+  fontWeight: 'bold',
+  color: '#000000ff', 
+  textAlign: 'center',
+  marginTop: 10,
+},
+subtitleText: {
+  fontSize: 16,
+  color: 'gray',
+  marginTop: 10,
+},
+wavingHand: {
+  
+  transform: [{ rotate: '20deg' }], 
+},
+emojiText: {
+  fontSize: 90, 
+  textAlign: 'center',
+},
 });
+

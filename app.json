@@ -16,6 +16,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "package": "com.tuorganizacion.milsmapp",
+      "versionCode": 1,
       "edgeToEdgeEnabled": true
     },
     "web": {
@@ -38,6 +40,18 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "50289092-4ca2-499c-90c9-0c4d320cf3a6"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/50289092-4ca2-499c-90c9-0c4d320cf3a6"
     }
   }
 }
